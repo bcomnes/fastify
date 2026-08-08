@@ -755,6 +755,57 @@ test('invalid content-type error message should not contain format placeholder',
   })
 })
 
+test('invalid content-type parameters are rejected before parser selection', async t => {
+  const fastify = Fastify()
+  t.after(() => fastify.close())
+
+  let parserCalled = false
+  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
+    parserCalled = true
+    done(null, body)
+  })
+  fastify.post('/', () => 'ok')
+
+  // RFC 9110 §§5.6.6 and 8.3.1 define media type parameters as
+  // semicolon-delimited `token=(token / quoted-string)` pairs.
+  const invalidContentTypes = [
+    // A comma cannot delimit another media type after a parameter value.
+    'application/json; charset=utf-8,application/json',
+    // `@@@` is not a parameter name and is not followed by `=` and a value.
+    'application/json; @@@',
+    // A parameter name must be followed by `=` and a value.
+    'application/json; foo',
+    // A parameter name cannot be empty.
+    'application/json; =bar',
+    // Whitespace cannot delimit trailing text after a parameter value.
+    'application/json; foo=bar baz',
+    // A quoted-string value must have a closing DQUOTE.
+    'application/json; foo="unterminated'
+  ]
+
+  const actual = []
+  for (const contentType of invalidContentTypes) {
+    parserCalled = false
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/',
+      headers: { 'content-type': contentType },
+      body: '{}'
+    })
+
+    const code = response.statusCode === 415 ? response.json().code : undefined
+    actual.push({ contentType, statusCode: response.statusCode, code, parserCalled })
+  }
+  const expected = invalidContentTypes.map(contentType => ({
+    contentType,
+    statusCode: 415,
+    code: 'FST_ERR_CTP_INVALID_MEDIA_TYPE',
+    parserCalled: false
+  }))
+
+  t.assert.deepStrictEqual(actual, expected)
+})
+
 test('content-type fail when not a valid type', async t => {
   t.plan(1)
 
