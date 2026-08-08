@@ -155,27 +155,35 @@ describe('ContentType class', () => {
     )
   })
 
-  test('skips invalid quoted string parameters', (t) => {
-    const found = new ContentType('Application/JSON ; charset=utf-8; foo=BaR;baz=" 42')
-    t.assert.equal(found.isEmpty, false)
-    t.assert.equal(found.mediaType, 'application/json')
-    t.assert.equal(found.type, 'application')
-    t.assert.equal(found.subtype, 'json')
-    t.assert.equal(found.parameters.size, 2)
-
-    const expected = [
-      ['charset', 'utf-8'],
-      ['foo', 'BaR']
+  test('rejects invalid parameter syntax', (t) => {
+    // RFC 9110 §§5.6.6 and 8.3.1 define media type parameters as
+    // semicolon-delimited `token=(token / quoted-string)` pairs.
+    const invalidContentTypes = [
+      // A comma cannot delimit another media type after a parameter value.
+      'application/json; charset=utf-8,application/json',
+      // `@@@` is not a parameter name and is not followed by `=` and a value.
+      'application/json; @@@',
+      // A parameter name must be followed by `=` and a value.
+      'application/json; foo',
+      // A parameter name cannot be empty.
+      'application/json; =bar',
+      // Whitespace cannot delimit trailing text after a parameter value.
+      'application/json; foo=bar baz',
+      // A quoted-string value must have a closing DQUOTE.
+      'application/json; foo="unterminated'
     ]
-    t.assert.deepStrictEqual(
-      Array.from(found.parameters.entries()),
-      expected
-    )
 
-    t.assert.equal(
-      found.toString(),
-      'application/json; charset="utf-8"; foo="BaR"'
-    )
+    const actual = invalidContentTypes.map(contentType => {
+      const found = new ContentType(contentType)
+      return { contentType, isValid: found.isValid, isEmpty: found.isEmpty }
+    })
+    const expected = invalidContentTypes.map(contentType => ({
+      contentType,
+      isValid: false,
+      isEmpty: true
+    }))
+
+    t.assert.deepStrictEqual(actual, expected)
   })
 
   test('preserves a semicolon inside a quoted parameter value', (t) => {
