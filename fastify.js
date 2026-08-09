@@ -15,6 +15,7 @@ const {
   kSupportedHTTPMethods,
   kRoutePrefix,
   kLogLevel,
+  kRequestLogLevel,
   kLogSerializers,
   kHooks,
   kSchemaController,
@@ -155,6 +156,7 @@ function fastify (serverOptions) {
     [kHandlerTimeout]: options.handlerTimeout,
     [kRoutePrefix]: '',
     [kLogLevel]: '',
+    [kRequestLogLevel]: initialConfig.requestLogLevel,
     [kLogSerializers]: null,
     [kHooks]: new Hooks(),
     [kSchemaController]: schemaController,
@@ -951,7 +953,7 @@ function defaultBuildPrettyMeta (route) {
   // return a shallow copy of route's sanitized context
 
   const cleanKeys = {}
-  const allowedProps = ['errorHandler', 'logLevel', 'logSerializers']
+  const allowedProps = ['errorHandler', 'logLevel', 'requestLogLevel', 'logSerializers']
 
   allowedProps.concat(supportedHooks).forEach(k => {
     cleanKeys[k] = route.store[k]

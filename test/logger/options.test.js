@@ -7,10 +7,10 @@ const split = require('split2')
 const pino = require('pino')
 
 const Fastify = require('../../fastify')
-const { on } = stream
+const { on, once } = stream
 
 t.test('logger options', { timeout: 60000 }, async (t) => {
-  t.plan(18)
+  t.plan(25)
 
   await t.test('logger can be silenced', (t) => {
     t.plan(17)
@@ -479,6 +479,150 @@ t.test('logger options', { timeout: 60000 }, async (t) => {
     }
   })
 
+  await t.test('Should set a default request log level for the server', async (t) => {
+    const stream = split(JSON.parse)
+    const loggerInstance = pino({ level: 'debug' }, stream)
+    const fastify = Fastify({ loggerInstance, requestLogLevel: 'debug' })
+    t.after(() => fastify.close())
+
+    fastify.get('/health', (request, reply) => {
+      t.assert.strictEqual(request.routeOptions.requestLogLevel, 'debug')
+      reply.send({ status: 'ok' })
+    })
+
+    const response = await fastify.inject({ method: 'GET', url: '/health' })
+    t.assert.strictEqual(response.statusCode, 200)
+
+    const logs = []
+    for await (const [line] of on(stream, 'data')) {
+      logs.push(line)
+      if (logs.length === 2) break
+    }
+
+    t.assert.deepStrictEqual(logs.map(({ level, msg }) => ({ level, msg })), [
+      { level: 20, msg: 'incoming request' },
+      { level: 20, msg: 'request completed' }
+    ])
+  })
+
+  await t.test('Should encapsulate request log level defaults and allow route overrides', async (t) => {
+    const fastify = Fastify({ requestLogLevel: 'warn' })
+    t.after(() => fastify.close())
+
+    fastify.get('/root', (request, reply) => {
+      t.assert.strictEqual(request.routeOptions.requestLogLevel, 'warn')
+      reply.send()
+    })
+
+    fastify.register((instance, opts, done) => {
+      instance.get('/plugin', (request, reply) => {
+        t.assert.strictEqual(request.routeOptions.requestLogLevel, 'debug')
+        reply.send()
+      })
+      instance.get('/override', { requestLogLevel: 'trace' }, (request, reply) => {
+        t.assert.strictEqual(request.routeOptions.requestLogLevel, 'trace')
+        reply.send()
+      })
+      done()
+    }, { requestLogLevel: 'debug' })
+
+    await fastify.inject('/root')
+    await fastify.inject('/plugin')
+    await fastify.inject('/override')
+  })
+
+  await t.test('Should reject an invalid default request log level when registering a route', async (t) => {
+    const fastify = Fastify({ logger: true, requestLogLevel: 'invalid' })
+    t.after(() => fastify.close())
+
+    t.assert.throws(() => {
+      fastify.get('/health', () => {})
+    }, {
+      code: 'FST_ERR_ROUTE_LOG_LEVEL_INVALID',
+      message: "Route option 'requestLogLevel' for 'GET:/health' must be a valid logger level. Received: 'invalid'"
+    })
+  })
+
+  await t.test('Should set a custom request log level for a specific route', async (t) => {
+    const stream = split(JSON.parse)
+    const loggerInstance = pino({ level: 'info' }, stream)
+    const fastify = Fastify({ loggerInstance })
+    t.after(() => fastify.close())
+
+    fastify.get('/health', {
+      logLevel: 'debug',
+      requestLogLevel: 'debug'
+    }, (request, reply) => {
+      t.assert.strictEqual(request.routeOptions.requestLogLevel, 'debug')
+      reply.send({ status: 'ok' })
+    })
+
+    const response = await fastify.inject({ method: 'GET', url: '/health' })
+    t.assert.strictEqual(response.statusCode, 200)
+
+    const logs = []
+    for await (const [line] of on(stream, 'data')) {
+      logs.push(line)
+      if (logs.length === 2) break
+    }
+
+    t.assert.deepStrictEqual(logs.map(({ level, msg }) => ({ level, msg })), [
+      { level: 20, msg: 'incoming request' },
+      { level: 20, msg: 'request completed' }
+    ])
+  })
+
+  await t.test('Should allow automatic request logging to be silenced for a specific route', async (t) => {
+    const stream = split(JSON.parse)
+    const loggerInstance = pino({ level: 'info' }, stream)
+    const fastify = Fastify({ loggerInstance })
+    t.after(() => fastify.close())
+
+    fastify.get('/health', { requestLogLevel: 'silent' }, (request, reply) => {
+      request.log.info('handler log')
+      reply.send({ status: 'ok' })
+    })
+
+    const response = await fastify.inject({ method: 'GET', url: '/health' })
+    t.assert.strictEqual(response.statusCode, 200)
+
+    const [line] = await once(stream, 'data')
+    t.assert.strictEqual(line.msg, 'handler log')
+  })
+
+  await t.test('Should throw when request log level for a route is invalid', async (t) => {
+    const fastify = Fastify({ logger: true })
+    t.after(() => fastify.close())
+
+    t.assert.throws(() => {
+      fastify.get('/health', { requestLogLevel: 'invalid' }, () => {})
+    }, {
+      code: 'FST_ERR_ROUTE_LOG_LEVEL_INVALID',
+      message: "Route option 'requestLogLevel' for 'GET:/health' must be a valid logger level. Received: 'invalid'"
+    })
+  })
+
+  await t.test('Should throw when request log level is unsupported by a custom logger', async (t) => {
+    const loggerInstance = {
+      fatal () {},
+      error () {},
+      warn () {},
+      info () {},
+      debug () {},
+      trace () {},
+      child () { return loggerInstance }
+    }
+    const fastify = Fastify({ loggerInstance })
+    t.after(() => fastify.close())
+
+    t.assert.throws(() => {
+      fastify.get('/health', { requestLogLevel: 'invalid' }, () => {})
+    }, {
+      code: 'FST_ERR_ROUTE_LOG_LEVEL_INVALID',
+      message: "Route option 'requestLogLevel' for 'GET:/health' must be a valid logger level. Received: 'invalid'"
+    })
+  })
+
   await t.test('Should throw when custom log level for a route is invalid', async (t) => {
     t.plan(4)
 
@@ -496,7 +640,7 @@ t.test('logger options', { timeout: 60000 }, async (t) => {
       t.assert.ok(err)
       t.assert.strictEqual(err.code, 'FST_ERR_ROUTE_LOG_LEVEL_INVALID')
       t.assert.strictEqual(err.statusCode, 500)
-      t.assert.strictEqual(err.message, "Log level for 'GET:/log' route must be a valid logger level. Received: 'invalid'")
+      t.assert.strictEqual(err.message, "Route option 'logLevel' for 'GET:/log' must be a valid logger level. Received: 'invalid'")
     }
   })
 

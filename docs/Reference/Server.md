@@ -22,6 +22,7 @@ describes the properties available in that options object.
   - [`onConstructorPoisoning`](#onconstructorpoisoning)
   - [`logger`](#logger)
   - [`loggerInstance`](#loggerinstance)
+  - [`requestLogLevel`](#requestloglevel)
   - [`disableRequestLogging`](#disablerequestlogging)
   - [`logController`](#logcontroller)
   - [`serverFactory`](#serverfactory)
@@ -387,6 +388,28 @@ Pino interface by having the following methods: `info`, `error`, `debug`,
   const fastify = require('fastify')({ loggerInstance: customLogger });
   ```
 
+### `requestLogLevel`
+<a id="factory-request-log-level"></a>
+
++ Default: `'info'`
+
+Sets the default log level for the automatic `incoming request` and successful
+`request completed` records. A route-level
+[`requestLogLevel`](./Routes.md#custom-log-level) overrides this value. The
+selected level remains subject to the route logger's `logLevel` threshold.
+
+Set this option to `'silent'` to suppress the two routine records by default
+without suppressing Fastify's automatic error records. Encapsulated plugins can
+also set `requestLogLevel` in their registration options to override the
+default for routes in that plugin scope.
+
+```js
+const fastify = require('fastify')({
+  logger: { level: 'debug' },
+  requestLogLevel: 'debug'
+})
+```
+
 ### `disableRequestLogging`
 <a id="factory-disable-request-logging"></a>
 
@@ -398,9 +421,11 @@ Pino interface by having the following methods: `info`, `error`, `debug`,
 
 When logging is enabled, Fastify will issue an `info` level log
 message when a request is received and when the response for that request has
-been sent. By setting this option to `true`, these log messages will be
-disabled. This allows for more flexible request start and end logging by
-attaching custom `onRequest` and `onResponse` hooks.
+been sent. The default or individual route level can be changed with
+[`requestLogLevel`](./Routes.md#custom-log-level). By setting this option to
+`true`, these log messages will be disabled. This allows for more flexible
+request start and end logging by attaching custom `onRequest` and `onResponse`
+hooks.
 
 This option can also be a function that receives the Fastify request object
 and returns a boolean. This allows for conditional request logging based on the
@@ -518,8 +543,8 @@ exception, since no route — and therefore no `request`/`reply` — is formed.
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `isLogDisabled` | `(request)` | Checks whether request logging is disabled for the given request. It impacts all other log methods. |
-| `incomingRequest` | `(request, reply, metadata)` | Logs an incoming request at `info` level. |
-| `requestCompleted` | `(error, request, reply, metadata)` | Logs the outcome of a completed request. Uses `error` level when an error is present, `info` otherwise. |
+| `incomingRequest` | `(request, reply, metadata)` | Logs an incoming request at the route's `requestLogLevel`. |
+| `requestCompleted` | `(error, request, reply, metadata)` | Logs the outcome of a completed request. Uses `error` when an error is present and the route's `requestLogLevel` otherwise. |
 | `defaultErrorLog` | `(error, request, reply, metadata)` | Logs an error handled by the default error handler. Uses `error` for 5xx, `info` for 4xx. |
 | `streamError` | `(error, request, reply, metadata)` | Logs stream-level errors after headers have been sent. |
 | `routeNotFound` | `(request, reply, metadata)` | Logs a "route not found" message at `info` level. |
@@ -2447,6 +2472,7 @@ The properties that can currently be exposed are:
 - https (it will return `false`/`true` or `{ allowHTTP1: true/false }` if
   explicitly passed)
 - disableRequestLogging
+- requestLogLevel
 - onProtoPoisoning
 - onConstructorPoisoning
 - pluginTimeout
